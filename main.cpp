@@ -59,7 +59,7 @@ int main(int argc, char * argv[])
 
 	
 
-	//调整字节序
+	//reordering the data seq.
 	*pTemp=*pPort;
 	*pPort=*(pPort+1);
 	*(pPort+1)=*pTemp;
@@ -76,14 +76,11 @@ int main(int argc, char * argv[])
 	while (!feof (infile))
 	{
 		fseek(infile,loffset,SEEK_SET);
-/*		fread(pData,1,4,infile);
-		if(memcmp(pData,pPort,4)==0) //找到udp的头，拿源端口和目的端口去找
-		*/
 		fread(pData,1,2,infile);
 		fread(pData,1,2,infile);
-		if(memcmp(pData,(pPort+2),2)==0) //找到udp的头，拿源端口和目的端口去找
+		if(memcmp(pData,(pPort+2),2)==0) //use udp port to find rtp header.
 		{
-			//读取udp的长度字段
+			//get udp length
 			memset(pData,0,4);
 			fseek(infile,loffset+4, SEEK_SET);
 			fread(pData,1,4,infile);
@@ -92,7 +89,7 @@ int main(int argc, char * argv[])
 			*(pData+1)=*pTemp;
 			memcpy(&udpLen,pData,2);
 
-			//读取rtp的负载类型字段
+			//get rtp payload type.
 			memset(pData,0,4);
 			fseek(infile,loffset+9,SEEK_SET);
 			fread(pData,1,1,infile);
@@ -100,7 +97,7 @@ int main(int argc, char * argv[])
 
 			if(memcmp(pData,pType,1)==0)
 			{
-				//读取rtp序列号字段
+				//get rtp seq.
 				memset(pData,0,4);
 				fseek(infile,loffset+10,SEEK_SET);
 				fread(pData,1,2,infile);
@@ -108,18 +105,18 @@ int main(int argc, char * argv[])
 				*pData=*(pData+1);
 				*(pData+1)=*pTemp;
 				memcpy(&rtpSn,pData,2);
-				//丢弃重复的数据包
-				if((rtpSn == lastRtpSn) && !seqnumStartFlag) //发生重复的包，而且不是
+				//drop dup rtp packet
+				if((rtpSn == lastRtpSn) && !seqnumStartFlag) 
 				{
 					loffset = loffset + udpLen;
 				}
 				else
 				{
-					//dong add 
+					//test lost rtp
 					if (rtpSn > lastRtpSn+1)
 						fprintf(lostfile,"lost rtp begin sequence number: %d           end sequence number: %d     interval  sequence number: %d \r\n",lastRtpSn, rtpSn, rtpSn - lastRtpSn);
 					lastRtpSn = rtpSn;
-					//读取rtp时戳字段
+					//get rtp timestamp
 					memset(pData,0,4);
 					fseek(infile,loffset+12,SEEK_SET);
 					fread(pData,1,4,infile);							
@@ -141,11 +138,11 @@ int main(int argc, char * argv[])
 					fprintf(pppfile,"rtp sequence number: %d           ",rtpSn);
 					fprintf(pppfile,"rtp length: %d\n",rtpLen);
 
-					// ---- 提取H.264码流代码 ---- //
-					RTPFrame srcRTP(pRTPPacket, rtpLen); //新建一个RTP包
+					//get h264 frame from rtp
+					RTPFrame srcRTP(pRTPPacket, rtpLen); 
 
 					unsigned int flags;
-					if (!_rxH264Frame->SetFromRTPFrame(srcRTP, flags))  // 1. 积攒数据包，异常出false，false后则把积攒全扔掉
+					if (!_rxH264Frame->SetFromRTPFrame(srcRTP, flags))  // 1.get the whole frame, otherwise drop it.
 					{
 						_rxH264Frame->BeginNewFrame();
 						flags = (_gotAGoodFrame ? requestIFrame : 0);
@@ -154,9 +151,9 @@ int main(int argc, char * argv[])
 						pRTPPacket=NULL;
 						loffset=loffset+rtpLen+8;
 					}
-					if (srcRTP.GetMarker()==1) // 2. 攒够一帧
+					if (srcRTP.GetMarker()==1) // 2.is marker, is whole frame 
 					{
-						if (_rxH264Frame->GetFrameSize()==0) // 3.一种异常情况
+						if (_rxH264Frame->GetFrameSize()==0) // 3.empty frame
 						{
 							_rxH264Frame->BeginNewFrame();
 							_skippedFrameCounter++;
@@ -168,9 +165,9 @@ int main(int argc, char * argv[])
 						}
 						else 
 						{
-							if (_gotIFrame == 0) // 4. 从I帧开始解码
+							if (_gotIFrame == 0) // 4.ensure the first frame is I-frame 
 							{
-								if (!_rxH264Frame->IsSync()) //如果不是I帧，扔掉
+								if (!_rxH264Frame->IsSync()) //drop frames except I-frame
 								{
 									_rxH264Frame->BeginNewFrame();
 									_gotAGoodFrame = false;
@@ -183,14 +180,14 @@ int main(int argc, char * argv[])
 								continue;
 							}
 						}
-						// 5.
+						// 5.read file 
 						int Framesize=_rxH264Frame->GetFrameSize();
 						fwrite(_rxH264Frame->GetFramePtr(),1, _rxH264Frame->GetFrameSize(),outfile);
 						fwrite(&Framesize,1,4,rtpfile);
 						fwrite(_rxH264Frame->GetFramePtr(),1,Framesize,rtpfile);
 						_rxH264Frame->BeginNewFrame();
 					} 
-					// ---- 提取H.264码流结束 ---- /
+					//end
 					delete []pRTPPacket;
 					pRTPPacket=NULL;
 					loffset=loffset+rtpLen+8;
